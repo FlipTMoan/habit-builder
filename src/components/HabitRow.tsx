@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useStore } from '../store'
 import type { Habit } from '../types'
 import { computeStreak, describeFrequency } from '../lib/streaks'
+import { startOfDay } from '../lib/dates'
 import { navigate } from '../App'
 import Modal from './Modal'
 
@@ -11,15 +12,24 @@ export default function HabitRow({ habit }: { habit: Habit }) {
   const addEntry = useStore((s) => s.addEntry)
   const categories = useStore((s) => s.categories)
   const entries = useStore((s) => s.entries)
+  const settings = useStore((s) => s.settings)
+  const useFreeze = useStore((s) => s.useFreeze)
   const status = statusFor(habit.id)
   const [showValue, setShowValue] = useState(false)
   const [value, setValue] = useState('')
 
-  const streak = useMemo(
-    () => computeStreak(habit, entries.filter((e) => e.habitId === habit.id), Date.now()).current,
-    [habit, entries],
+  const freezeLog = settings?.freezeLog ?? []
+  const streakResult = useMemo(
+    () => computeStreak(habit, entries.filter((e) => e.habitId === habit.id), Date.now(), freezeLog),
+    [habit, entries, freezeLog],
   )
+  const streak = streakResult.current
+  const bestStreak = streakResult.best
   const cat = categories.find((c) => c.id === habit.categoryId)
+
+  const todayStart = startOfDay(Date.now())
+  const isFrozenToday = freezeLog.includes(todayStart)
+  const streakWasBroken = bestStreak >= 3 && streak === 0
 
   const onCheck = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -36,6 +46,11 @@ export default function HabitRow({ habit }: { habit: Habit }) {
     await addEntry(habit.id, parsed)
     setShowValue(false)
     setValue('')
+  }
+
+  const handleFreeze = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    useFreeze(todayStart)
   }
 
   return (
@@ -67,6 +82,14 @@ export default function HabitRow({ habit }: { habit: Habit }) {
             )}
             <span className={`streak-pill ${streak > 0 ? 'on' : ''}`}>🔥 {streak}</span>
           </div>
+          {streakWasBroken && !status.done && !isFrozenToday && (
+            <div className="recovery-msg">
+              <span>💪 Streak paused — get back on track today!</span>
+              <button className="btn small secondary" onClick={handleFreeze}>
+                ❄️ Use freeze
+              </button>
+            </div>
+          )}
         </div>
         {habit.type === 'quantified' && !status.done && (
           <button

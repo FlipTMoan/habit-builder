@@ -26,8 +26,18 @@ export const db = new HabitDB()
 
 export async function getDeviceId(): Promise<string> {
   const existing = await db.settings.get('global')
-  if (existing) return existing.deviceId
+  if (existing) {
+    // Ensure new fields exist on old records
+    if (!existing.freezeLog || !existing.freezesPerMonth) {
+      await db.settings.put({
+        ...existing,
+        freezeLog: existing.freezeLog ?? [],
+        freezesPerMonth: existing.freezesPerMonth ?? 2,
+      })
+    }
+    return existing.deviceId
+  }
   const deviceId = crypto.randomUUID()
-  await db.settings.put({ id: 'global', deviceId, createdAt: Date.now() })
+  await db.settings.put({ id: 'global', deviceId, createdAt: Date.now(), freezeLog: [], freezesPerMonth: 2 })
   return deviceId
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
+import { achievementDef } from '../lib/achievements'
 
 export default function Toast() {
   const lastUnlocked = useStore((s) => s.lastUnlocked)
@@ -14,9 +15,15 @@ export default function Toast() {
 
   if (!visible || lastUnlocked.length === 0) return null
 
+  const firstDef = achievementDef(lastUnlocked[0].key)
+  const text =
+    lastUnlocked.length === 1 && firstDef
+      ? `${firstDef.icon} ${firstDef.name} unlocked!`
+      : `${lastUnlocked.length} achievements unlocked!`
+
   return (
     <div className="toast" role="status">
-      🎉 {lastUnlocked.length > 1 ? `${lastUnlocked.length} achievements` : 'Achievement'} unlocked!
+      {text}
     </div>
   )
 }

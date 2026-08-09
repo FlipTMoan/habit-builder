@@ -30,6 +30,7 @@ export interface AchievementContext {
   goals: Goal[]
   entries: LogEntry[]
   today: number
+  freezeLog: number[]
 }
 
 export function achievementDef(key: string): AchievementDef | undefined {
@@ -39,10 +40,10 @@ export function achievementDef(key: string): AchievementDef | undefined {
 /** Returns the set of achievement keys whose conditions currently hold. */
 export function evaluateAchievements(ctx: AchievementContext): string[] {
   const unlocked: string[] = []
-  const { habits, goals, entries, today } = ctx
+  const { habits, goals, entries, today, freezeLog } = ctx
 
   const activeHabits = habits.filter((h) => !h.archivedAt)
-  const streakVals = activeHabits.map((h) => computeStreak(h, entries.filter((e) => e.habitId === h.id), today))
+  const streakVals = activeHabits.map((h) => computeStreak(h, entries.filter((e) => e.habitId === h.id), today, freezeLog))
   const totalCompletions = entries.length
 
   if (habits.length >= 1) unlocked.push('first_habit')

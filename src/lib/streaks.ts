@@ -1,6 +1,19 @@
 import type { Frequency, Habit, LogEntry } from '../types'
 import { DAY_MS, startOfDay, startOfWeek, startOfMonth } from './dates'
 
+/** Number of freezes used in a given month (month is 0-indexed). */
+export function freezesUsedInMonth(freezeLog: number[], year: number, month: number): number {
+  return freezeLog.filter((ts) => {
+    const d = new Date(ts)
+    return d.getFullYear() === year && d.getMonth() === month
+  }).length
+}
+
+/** Check if a given day-start has a freeze applied. */
+export function isDayFrozen(freezeLog: number[], dayStart: number): boolean {
+  return freezeLog.includes(dayStart)
+}
+
 export interface Window {
   start: number
   end: number // exclusive
@@ -138,7 +151,7 @@ export interface StreakResult {
   totalValue: number
 }
 
-export function computeStreak(habit: Habit, entries: LogEntry[], today: number): StreakResult {
+export function computeStreak(habit: Habit, entries: LogEntry[], today: number, freezeLog: number[] = []): StreakResult {
   const totals = buildDayTotals(entries)
   const createdAt = habit.createdAt
 
@@ -164,6 +177,9 @@ export function computeStreak(habit: Habit, entries: LogEntry[], today: number):
     if (seenFwd.has(key)) break
     seenFwd.add(key)
     if (completed(fwd)) {
+      consecutive += 1
+      best = Math.max(best, consecutive)
+    } else if (isDayFrozen(freezeLog, key)) {
       consecutive += 1
       best = Math.max(best, consecutive)
     } else {
@@ -197,6 +213,9 @@ export function computeStreak(habit: Habit, entries: LogEntry[], today: number):
     if (seenBack.has(key)) break
     seenBack.add(key)
     if (completed(curWin)) {
+      current += 1
+    } else if (isDayFrozen(freezeLog, key)) {
+      // Frozen day counts toward the streak
       current += 1
     } else if (curWin.end <= today) {
       // A scheduled window that already passed without being completed resets the streak.

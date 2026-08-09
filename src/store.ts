@@ -7,6 +7,7 @@ import type {
   Habit,
   LogEntry,
   NotificationSettings,
+  Settings,
 } from './types'
 import { PRESET_CATEGORIES, PRESET_HABITS, makePresetHabit, presetCategoryFor } from './seed'
 import { startOfDay } from './lib/dates'
@@ -41,6 +42,7 @@ interface AppState {
   entries: LogEntry[]
   achievements: Achievement[]
   lastUnlocked: Achievement[]
+  settings: Settings | null
   hydrate: () => Promise<void>
 
   createHabit: (input: HabitInput) => Promise<Habit>
@@ -59,6 +61,7 @@ interface AppState {
   addEntry: (habitId: string, value?: number) => Promise<void>
   removeEntry: (entryId: string) => Promise<void>
   toggleToday: (habitId: string) => Promise<void>
+  useFreeze: (dayStart: number) => Promise<void>
   statusFor: (habitId: string, today?: number) => TodayStatus
 
   exportJSON: () => Promise<string>
@@ -75,8 +78,9 @@ export const useStore = create<AppState>((set, get) => {
   }
 
   const refreshAchievements = async () => {
-    const { habits, goals, entries, achievements } = get()
-    const current = evaluateAchievements({ habits, goals, entries, today: Date.now() })
+    const { habits, goals, entries, achievements, settings } = get()
+    const freezeLog = settings?.freezeLog ?? []
+    const current = evaluateAchievements({ habits, goals, entries, today: Date.now(), freezeLog })
     const newOnes = newlyUnlocked(current, achievements)
     if (newOnes.length === 0) return
     const records: Achievement[] = newOnes.map((d) => ({
@@ -89,7 +93,8 @@ export const useStore = create<AppState>((set, get) => {
   }
 
   const evaluateGoalCompletions = async () => {
-    const { goals, habits, entries } = get()
+    const { goals, habits, entries, settings } = get()
+    const freezeLog = settings?.freezeLog ?? []
     let changed = false
     for (const goal of goals) {
       if (goal.completedAt) continue
@@ -102,7 +107,7 @@ export const useStore = create<AppState>((set, get) => {
       } else if (goal.measure === 'streakLength') {
         for (const h of habits) {
           if (!goal.linkedHabitIds.includes(h.id)) continue
-          const s = computeStreak(h, entries.filter((e) => e.habitId === h.id), Date.now())
+          const s = computeStreak(h, entries.filter((e) => e.habitId === h.id), Date.now(), freezeLog)
           if (s.current >= goal.targetValue) {
             done = true
             break
@@ -135,6 +140,7 @@ export const useStore = create<AppState>((set, get) => {
     entries: [],
     achievements: [],
     lastUnlocked: [],
+    settings: null,
 
     hydrate: async () => {
       try {
@@ -142,14 +148,15 @@ export const useStore = create<AppState>((set, get) => {
         if (categories.length === 0) {
           await db.categories.bulkPut(PRESET_CATEGORIES.map((c, i) => ({ ...c, id: `pcat-${i}` })))
         }
-        const [habits, goals, entries, achievements, cats] = await Promise.all([
+        const [habits, goals, entries, achievements, cats, settings] = await Promise.all([
           db.habits.toArray(),
           db.goals.toArray(),
           db.logEntries.toArray(),
           db.achievements.toArray(),
           db.categories.toArray(),
+          db.settings.get('global'),
         ])
-        set({ categories: cats, habits, goals, entries, achievements, initialized: true })
+        set({ categories: cats, habits, goals, entries, achievements, settings: settings ?? null, initialized: true })
         await evaluateGoalCompletions()
         await refreshAchievements()
       } catch (e) {
@@ -280,6 +287,15 @@ export const useStore = create<AppState>((set, get) => {
       set({ entries: await db.logEntries.toArray() })
       await evaluateGoalCompletions()
       await refreshAchievements()
+    },
+
+    useFreeze: async (dayStart) => {
+      const { settings } = get()
+      if (!settings) return
+      if (settings.freezeLog.includes(dayStart)) return
+      const updated = { ...settings, freezeLog: [...settings.freezeLog, dayStart] }
+      await db.settings.put(updated)
+      set({ settings: updated })
     },
 
     statusFor: (habitId, today = Date.now()) => {

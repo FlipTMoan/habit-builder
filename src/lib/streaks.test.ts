@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Habit, LogEntry } from '../types'
-import { computeStreak, countCompletedWindows, windowForDay } from './streaks'
+import { computeStreak, countCompletedWindows, windowForDay, freezesUsedInMonth, isDayFrozen } from './streaks'
 
 function d(y: number, m: number, day: number, h = 12): number {
   return new Date(y, m - 1, day, h).getTime()
@@ -151,5 +151,52 @@ describe('countCompletedWindows', () => {
     const cutoff = d(2026, 1, 5)
     const entries = [entry(d(2026, 1, 1)), entry(d(2026, 1, 3)), entry(d(2026, 1, 6))]
     expect(countCompletedWindows(habit, entries, cutoff)).toBe(2)
+  })
+})
+
+describe('streak freezes', () => {
+  it('preserves streak when a frozen day is missed', () => {
+    const habit = makeHabit({})
+    const today = d(2026, 1, 6)
+    // Completed Jan 2,3,4 — missed Jan 5 — today Jan 6
+    const entries = [entry(d(2026, 1, 2)), entry(d(2026, 1, 3)), entry(d(2026, 1, 4))]
+    const freezeLog = [d(2026, 1, 5, 0)] // froze Jan 5
+    const s = computeStreak(habit, entries, today, freezeLog)
+    // Without freeze: streak would be 0. With freeze: continues from 3.
+    expect(s.current).toBe(4) // 2,3,4 done + 5 frozen = 4
+  })
+
+  it('freezes also count for best streak', () => {
+    const habit = makeHabit({})
+    const today = d(2026, 1, 10)
+    const entries = [entry(d(2026, 1, 2)), entry(d(2026, 1, 3)), entry(d(2026, 1, 4)), entry(d(2026, 1, 8)), entry(d(2026, 1, 9))]
+    const freezeLog = [d(2026, 1, 5, 0), d(2026, 1, 6, 0), d(2026, 1, 7, 0)]
+    const s = computeStreak(habit, entries, today, freezeLog)
+    expect(s.current).toBe(8) // 2,3,4 done + 5,6,7 frozen + 8,9 done
+    expect(s.best).toBe(8)
+  })
+
+  it('still breaks streak on unfrozen missed day', () => {
+    const habit = makeHabit({})
+    const today = d(2026, 1, 6)
+    const entries = [entry(d(2026, 1, 2)), entry(d(2026, 1, 3)), entry(d(2026, 1, 4))]
+    const freezeLog: number[] = [] // no freezes used
+    const s = computeStreak(habit, entries, today, freezeLog)
+    expect(s.current).toBe(0)
+  })
+})
+
+describe('freeze helpers', () => {
+  it('isDayFrozen checks exact day start', () => {
+    const day = d(2026, 1, 5, 0)
+    expect(isDayFrozen([day], day)).toBe(true)
+    expect(isDayFrozen([day], day + 86_400_000)).toBe(false)
+  })
+
+  it('freezesUsedInMonth counts correctly', () => {
+    const log = [d(2026, 1, 5, 0), d(2026, 1, 12, 0), d(2026, 2, 3, 0)]
+    expect(freezesUsedInMonth(log, 2026, 0)).toBe(2) // Jan
+    expect(freezesUsedInMonth(log, 2026, 1)).toBe(1) // Feb
+    expect(freezesUsedInMonth(log, 2026, 2)).toBe(0) // Mar
   })
 })

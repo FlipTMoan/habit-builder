@@ -78,4 +78,8 @@ export interface Settings {
   id: string
   deviceId: string
   createdAt: number
+  /** timestamps of days the user has used a streak freeze on (start-of-day ms) */
+  freezeLog: number[]
+  /** max freezes allowed per month */
+  freezesPerMonth: number
 }

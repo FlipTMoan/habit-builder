@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { computeStreak } from '../lib/streaks'
 import HabitRow from '../components/HabitRow'
 import ProgressRing from '../components/ProgressRing'
+import Heatmap from '../components/Heatmap'
 import { computeGoalProgress } from '../lib/goals'
 import { navigate } from '../App'
 import { startOfDay } from '../lib/dates'
@@ -12,18 +13,20 @@ export default function DashboardScreen() {
   const goals = useStore((s) => s.goals)
   const entries = useStore((s) => s.entries)
   const categories = useStore((s) => s.categories)
+  const settings = useStore((s) => s.settings)
 
   const active = useMemo(() => habits.filter((h) => !h.archivedAt), [habits])
   const today = Date.now()
+  const freezeLog = settings?.freezeLog ?? []
 
   const bestStreak = useMemo(() => {
     let best = 0
     for (const h of active) {
-      const s = computeStreak(h, entries.filter((e) => e.habitId === h.id), today)
+      const s = computeStreak(h, entries.filter((e) => e.habitId === h.id), today, freezeLog)
       best = Math.max(best, s.current)
     }
     return best
-  }, [active, entries])
+  }, [active, entries, freezeLog])
 
   const doneToday = useMemo(
     () => entries.filter((e) => e.timestamp >= startOfDay(today)).length,
@@ -45,6 +48,26 @@ export default function DashboardScreen() {
     }
     return map
   }, [active])
+
+  const heatmapData = useMemo(() => {
+    const map = new Map<number, number>()
+    const today = Date.now()
+    const activeIds = new Set(active.map((h) => h.id))
+    const relevantEntries = entries.filter((e) => activeIds.has(e.habitId))
+    for (const e of relevantEntries) {
+      const day = startOfDay(e.timestamp)
+      map.set(day, (map.get(day) ?? 0) + 1)
+    }
+    // Normalize to 0-4 scale
+    const max = Math.max(1, ...map.values())
+    const out = new Map<number, number>()
+    for (const [day, count] of map) {
+      if (day > today) continue
+      const level = Math.min(4, Math.ceil((count / max) * 4))
+      out.set(day, level)
+    }
+    return out
+  }, [entries, active])
 
   return (
     <div className="page">
@@ -90,6 +113,22 @@ export default function DashboardScreen() {
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {active.length > 0 && (
+        <div className="card">
+          <h2>Activity</h2>
+          <Heatmap data={heatmapData} />
+          <div className="heatmap-legend">
+            <span className="text-s text-faint">Less</span>
+            <div className="heatmap-cell" />
+            <div className="heatmap-cell lvl1" />
+            <div className="heatmap-cell lvl2" />
+            <div className="heatmap-cell lvl3" />
+            <div className="heatmap-cell lvl4" />
+            <span className="text-s text-faint">More</span>
           </div>
         </div>
       )}

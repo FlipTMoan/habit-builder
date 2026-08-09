@@ -81,6 +81,7 @@ export default function HabitDetailScreen({ habitId }: { habitId: string }) {
   const archiveHabit = useStore((s) => s.archiveHabit)
   const deleteHabit = useStore((s) => s.deleteHabit)
   const removeEntry = useStore((s) => s.removeEntry)
+  const settings = useStore((s) => s.settings)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const habitEntries = useMemo(
@@ -93,8 +94,8 @@ export default function HabitDetailScreen({ habitId }: { habitId: string }) {
   )
 
   const stats = useMemo(
-    () => (habit ? computeStreak(habit, habitEntries, Date.now()) : null),
-    [habit, habitEntries],
+    () => (habit ? computeStreak(habit, habitEntries, Date.now(), settings?.freezeLog ?? []) : null),
+    [habit, habitEntries, settings],
   )
   const heatmap = useMemo(
     () => (habit ? buildHeatmapData(habit, habitEntries) : new Map<number, number>()),

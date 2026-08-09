@@ -288,7 +288,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 .heatmap-cell.lvl2 { background: #4338ca; }
 .heatmap-cell.lvl3 { background: #4f46e5; }
 .heatmap-cell.lvl4 { background: #818cf8; }
-.heatmap-labels { display: flex; justify-content: space-between; font-size: 0.68rem; color: var(--text-faint); }
+.heatmap-labels { display: flex; flex-direction: column; justify-content: space-around; font-size: 0.68rem; color: var(--text-faint); padding-right: 4px; }
+.heatmap-months { display: flex; gap: 4px; font-size: 0.68rem; color: var(--text-faint); margin-bottom: 4px; padding-left: 28px; }
+.heatmap-legend { display: flex; align-items: center; gap: 4px; margin-top: 10px; justify-content: flex-end; }
 
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .text-muted { color: var(--text-muted); }
@@ -389,3 +391,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 .detail-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 
 .formula { font-size: 0.78rem; color: var(--text-faint); margin-top: 6px; }
+
+.recovery-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 10px;
+  font-size: 0.78rem;
+  color: var(--amber);
+}
