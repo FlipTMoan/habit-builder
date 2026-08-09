@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from './store'
 import { useReminders } from './reminders'
-import { registerSW } from 'virtual:pwa-register'
 import NavBar from './components/NavBar'
 import Toast from './components/Toast'
 import TodayScreen from './screens/TodayScreen'
@@ -101,7 +100,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    registerSW({ immediate: true })
+    import('virtual:pwa-register').then(({ registerSW }) => {
+      registerSW({ immediate: true })
+    }).catch(() => {})
   }, [])
 
   if (!initialized) {

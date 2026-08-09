@@ -137,20 +137,25 @@ export const useStore = create<AppState>((set, get) => {
     lastUnlocked: [],
 
     hydrate: async () => {
-      const categories = await db.categories.toArray()
-      if (categories.length === 0) {
-        await db.categories.bulkAdd(PRESET_CATEGORIES.map((c, i) => ({ ...c, id: `pcat-${i}` })))
+      try {
+        const categories = await db.categories.toArray()
+        if (categories.length === 0) {
+          await db.categories.bulkPut(PRESET_CATEGORIES.map((c, i) => ({ ...c, id: `pcat-${i}` })))
+        }
+        const [habits, goals, entries, achievements, cats] = await Promise.all([
+          db.habits.toArray(),
+          db.goals.toArray(),
+          db.logEntries.toArray(),
+          db.achievements.toArray(),
+          db.categories.toArray(),
+        ])
+        set({ categories: cats, habits, goals, entries, achievements, initialized: true })
+        await evaluateGoalCompletions()
+        await refreshAchievements()
+      } catch (e) {
+        console.error('Failed to hydrate:', e)
+        set({ initialized: true })
       }
-      const [habits, goals, entries, achievements, cats] = await Promise.all([
-        db.habits.toArray(),
-        db.goals.toArray(),
-        db.logEntries.toArray(),
-        db.achievements.toArray(),
-        db.categories.toArray(),
-      ])
-      set({ categories: cats, habits, goals, entries, achievements, initialized: true })
-      await evaluateGoalCompletions()
-      await refreshAchievements()
     },
 
     createHabit: async (input) => {
