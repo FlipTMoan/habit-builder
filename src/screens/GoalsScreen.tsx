@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import type { Goal, GoalMeasure } from '../types'
 import ProgressRing from '../components/ProgressRing'
 import { computeGoalProgress } from '../lib/goals'
+import { describeFrequency } from '../lib/streaks'
 import Modal from '../components/Modal'
 
 const MEASURE_LABELS: Record<GoalMeasure, string> = {
@@ -142,8 +143,32 @@ export default function GoalsScreen() {
                   )}
                 </div>
               </div>
-              {g.linkedHabitIds.length === 0 && (
+              {g.linkedHabitIds.length > 0 ? (
+                <div className="goal-habits" style={{ marginTop: 8 }}>
+                  {g.linkedHabitIds.map((hid) => {
+                    const h = habits.find((x) => x.id === hid)
+                    if (!h) return null
+                    const statusFor = useStore.getState().statusFor
+                    const status = statusFor(hid, today)
+                    return (
+                      <div key={hid} className={`goal-habit-row ${status.done ? 'done' : ''}`}>
+                        <span className="goal-habit-check">{status.done ? '✓' : '○'}</span>
+                        <span className="goal-habit-name">{h.name}</span>
+                        <span className="text-s text-faint">{describeFrequency(h.frequency)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
                 <div className="text-s text-faint">No habits linked yet.</div>
+              )}
+              {!g.completedAt && (
+                <div className="progress-bar" style={{ marginTop: 8 }}>
+                  <div style={{
+                    width: `${Math.min(100, Math.round(p.pct))}%`,
+                    background: p.pct >= 100 ? 'var(--green)' : 'var(--accent)',
+                  }} />
+                </div>
               )}
             </div>
           )

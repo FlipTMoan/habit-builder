@@ -404,3 +404,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
   font-size: 0.78rem;
   color: var(--amber);
 }
+
+.goal-habits { display: flex; flex-direction: column; gap: 6px; }
+.goal-habit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-soft);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.goal-habit-row.done { color: var(--green); }
+.goal-habit-check { flex-shrink: 0; font-weight: 700; width: 18px; text-align: center; }
+.goal-habit-name { flex: 1; font-weight: 500; }
