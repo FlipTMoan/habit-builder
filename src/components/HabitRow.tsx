@@ -6,11 +6,12 @@ import { navigate } from '../App'
 import Modal from './Modal'
 
 export default function HabitRow({ habit }: { habit: Habit }) {
-  const status = useStore((s) => s.statusFor(habit.id))
+  const statusFor = useStore((s) => s.statusFor)
   const toggleToday = useStore((s) => s.toggleToday)
   const addEntry = useStore((s) => s.addEntry)
   const categories = useStore((s) => s.categories)
   const entries = useStore((s) => s.entries)
+  const status = statusFor(habit.id)
   const [showValue, setShowValue] = useState(false)
   const [value, setValue] = useState('')
 
