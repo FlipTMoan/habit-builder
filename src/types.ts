@@ -1,4 +1,5 @@
 export type HabitType = 'binary' | 'quantified'
+export type QuantityKind = 'count' | 'duration'
 
 export type FrequencyKind = 'daily' | 'weekly' | 'monthly' | 'custom'
 
@@ -29,6 +30,7 @@ export interface Habit {
   description?: string
   categoryId: string | null
   type: HabitType
+  quantityKind?: QuantityKind
   target?: { value: number; unit: string }
   frequency: Frequency
   appLinks: AppLink[]

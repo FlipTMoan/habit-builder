@@ -6,6 +6,32 @@ import { startOfDay } from '../lib/dates'
 import { navigate } from '../App'
 import Modal from './Modal'
 
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  if (m === 0) return `${s}s`
+  return s > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${m} min`
+}
+
+function parseDuration(input: string): number {
+  const s = input.trim()
+  if (s.includes(':')) {
+    const parts = s.split(':')
+    if (parts.length === 2) {
+      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0)
+    }
+    if (parts.length === 3) {
+      return (parseInt(parts[0], 10) || 0) * 3600 + (parseInt(parts[1], 10) || 0) * 60 + (parseInt(parts[2], 10) || 0)
+    }
+  }
+  return parseFloat(s.replace(',', '.')) || 0
+}
+
+function formatValue(v: number, unit: string, quantityKind?: string): string {
+  if (quantityKind === 'duration') return formatDuration(v)
+  return `${v} ${unit}`
+}
+
 export default function HabitRow({ habit }: { habit: Habit }) {
   const statusFor = useStore((s) => s.statusFor)
   const toggleToday = useStore((s) => s.toggleToday)
@@ -31,6 +57,11 @@ export default function HabitRow({ habit }: { habit: Habit }) {
   const isFrozenToday = freezeLog.includes(todayStart)
   const streakWasBroken = bestStreak >= 3 && streak === 0
 
+  const progressPct = useMemo(() => {
+    if (habit.type !== 'quantified' || !habit.target) return 0
+    return Math.min(100, Math.round((status.current / habit.target.value) * 100))
+  }, [habit, status.current])
+
   const onCheck = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (habit.type === 'quantified') {
@@ -41,7 +72,12 @@ export default function HabitRow({ habit }: { habit: Habit }) {
   }
 
   const submitValue = async () => {
-    const parsed = parseFloat(value.replace(',', '.'))
+    let parsed: number
+    if (habit.quantityKind === 'duration') {
+      parsed = parseDuration(value)
+    } else {
+      parsed = parseFloat(value.replace(',', '.'))
+    }
     if (!Number.isFinite(parsed) || parsed <= 0) return
     await addEntry(habit.id, parsed)
     setShowValue(false)
@@ -77,11 +113,21 @@ export default function HabitRow({ habit }: { habit: Habit }) {
             <span>{describeFrequency(habit.frequency)}</span>
             {habit.type === 'quantified' && habit.target && (
               <span>
-                {status.current}/{habit.target.value} {habit.target.unit}
+                {formatValue(status.current, habit.target.unit, habit.quantityKind)}
+                {' / '}
+                {formatValue(habit.target.value, habit.target.unit, habit.quantityKind)}
               </span>
             )}
             <span className={`streak-pill ${streak > 0 ? 'on' : ''}`}>🔥 {streak}</span>
           </div>
+          {habit.type === 'quantified' && habit.target && (
+            <div className="progress-bar" style={{ marginTop: 6 }}>
+              <div style={{
+                width: `${progressPct}%`,
+                background: progressPct >= 100 ? 'var(--green)' : 'var(--accent)',
+              }} />
+            </div>
+          )}
           {streakWasBroken && !status.done && !isFrozenToday && (
             <div className="recovery-msg">
               <span>💪 Streak paused — get back on track today!</span>
@@ -108,18 +154,31 @@ export default function HabitRow({ habit }: { habit: Habit }) {
         <div className="sheet-form">
           <div className="field">
             <label>
-              Amount (target: {habit.target?.value} {habit.target?.unit})
+              {habit.quantityKind === 'duration' ? 'Time' : 'Amount'}
+              {' '}(target: {habit.target ? formatValue(habit.target.value, habit.target.unit, habit.quantityKind) : '—'})
             </label>
-            <input
-              autoFocus
-              type="number"
-              inputMode="decimal"
-              step="any"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submitValue()}
-              placeholder={habit.target?.unit}
-            />
+            {habit.quantityKind === 'duration' ? (
+              <input
+                autoFocus
+                type="text"
+                inputMode="numeric"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && submitValue()}
+                placeholder="MM:SS"
+              />
+            ) : (
+              <input
+                autoFocus
+                type="number"
+                inputMode="decimal"
+                step="any"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && submitValue()}
+                placeholder={habit.target?.unit}
+              />
+            )}
           </div>
           <button className="btn btn-block" onClick={submitValue}>
             Log entry

@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../store'
-import type { Frequency, Habit } from '../types'
+import type { Frequency, Habit, QuantityKind } from '../types'
 import { navigate } from '../App'
 
 interface Draft {
   name: string
   description: string
   type: Habit['type']
+  quantityKind: QuantityKind
   targetValue: string
   targetUnit: string
   categoryId: string | null
@@ -19,6 +20,25 @@ interface Draft {
   goalIds: string[]
 }
 
+function parseDuration(input: string): number {
+  const s = input.trim()
+  if (s.includes(':')) {
+    const parts = s.split(':')
+    if (parts.length === 2) {
+      const mins = parseInt(parts[0], 10) || 0
+      const secs = parseInt(parts[1], 10) || 0
+      return mins * 60 + secs
+    }
+    if (parts.length === 3) {
+      const hrs = parseInt(parts[0], 10) || 0
+      const mins = parseInt(parts[1], 10) || 0
+      const secs = parseInt(parts[2], 10) || 0
+      return hrs * 3600 + mins * 60 + secs
+    }
+  }
+  return parseFloat(s.replace(',', '.')) || 0
+}
+
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function fromHabit(habit?: Habit): Draft {
@@ -26,6 +46,7 @@ function fromHabit(habit?: Habit): Draft {
     name: habit?.name ?? '',
     description: habit?.description ?? '',
     type: habit?.type ?? 'binary',
+    quantityKind: habit?.quantityKind ?? 'count',
     targetValue: habit?.target?.value != null ? String(habit.target.value) : '',
     targetUnit: habit?.target?.unit ?? '',
     categoryId: habit?.categoryId ?? null,
@@ -90,9 +111,12 @@ export default function HabitFormScreen({ habitId }: { habitId?: string }) {
       setError('Give the habit a name.')
       return
     }
+    const targetValue = draft.quantityKind === 'duration'
+      ? parseDuration(draft.targetValue)
+      : parseFloat(draft.targetValue.replace(',', '.')) || 1
     const target =
       draft.type === 'quantified'
-        ? { value: parseFloat(draft.targetValue.replace(',', '.')) || 1, unit: draft.targetUnit.trim() || 'x' }
+        ? { value: targetValue, unit: draft.targetUnit.trim() || (draft.quantityKind === 'duration' ? 'min' : 'x') }
         : undefined
 
     const frequency: Frequency = {
@@ -113,6 +137,7 @@ export default function HabitFormScreen({ habitId }: { habitId?: string }) {
       name: draft.name.trim(),
       description: draft.description.trim() || undefined,
       type: draft.type,
+      quantityKind: draft.type === 'quantified' ? draft.quantityKind : undefined,
       target,
       categoryId: draft.categoryId,
       frequency,
@@ -175,23 +200,48 @@ export default function HabitFormScreen({ habitId }: { habitId?: string }) {
             </div>
           </div>
           {draft.type === 'quantified' && (
-            <div className="form-grid">
+            <>
               <div className="field">
-                <label>Target</label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  value={draft.targetValue}
-                  onChange={(e) => set('targetValue', e.target.value)}
-                  placeholder="20"
-                />
+                <label>What are you tracking?</label>
+                <div className="seg">
+                  <button className={draft.quantityKind === 'count' ? 'active' : ''} onClick={() => set('quantityKind', 'count')}>
+                    Count / amount
+                  </button>
+                  <button className={draft.quantityKind === 'duration' ? 'active' : ''} onClick={() => set('quantityKind', 'duration')}>
+                    Time / duration
+                  </button>
+                </div>
               </div>
-              <div className="field">
-                <label>Unit</label>
-                <input value={draft.targetUnit} onChange={(e) => set('targetUnit', e.target.value)} placeholder="pages" />
+              <div className="form-grid">
+                <div className="field">
+                  <label>{draft.quantityKind === 'duration' ? 'Target time' : 'Target'}</label>
+                  {draft.quantityKind === 'duration' ? (
+                    <input
+                      value={draft.targetValue}
+                      onChange={(e) => set('targetValue', e.target.value)}
+                      placeholder="30:00"
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="any"
+                      value={draft.targetValue}
+                      onChange={(e) => set('targetValue', e.target.value)}
+                      placeholder="20"
+                    />
+                  )}
+                </div>
+                <div className="field">
+                  <label>Unit</label>
+                  <input
+                    value={draft.targetUnit}
+                    onChange={(e) => set('targetUnit', e.target.value)}
+                    placeholder={draft.quantityKind === 'duration' ? 'min' : 'pages'}
+                  />
+                </div>
               </div>
-            </div>
+            </>
           )}
         </div>
       </div>

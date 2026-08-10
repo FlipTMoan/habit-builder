@@ -12,6 +12,18 @@ import Modal from '../components/Modal'
 
 const DAY_MS = 86_400_000
 
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  if (m === 0) return `${s}s`
+  return s > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${m} min`
+}
+
+function formatValue(v: number, unit: string, quantityKind?: string): string {
+  if (quantityKind === 'duration') return formatDuration(v)
+  return `${v} ${unit}`
+}
+
 function perDayTotals(entries: LogEntry[]): Map<number, number> {
   const map = new Map<number, number>()
   for (const e of entries) {
@@ -183,8 +195,8 @@ export default function HabitDetailScreen({ habitId }: { habitId: string }) {
             <span>{habit.type === 'quantified' ? 'entries' : 'completions'}</span>
           </div>
           <div className="overview-stat">
-            <b>{habit.type === 'quantified' && habit.target ? habit.target.value : '—'}</b>
-            <span>{habit.type === 'quantified' ? `target / ${habit.target?.unit}` : 'daily'}</span>
+            <b>{habit.type === 'quantified' && habit.target ? formatValue(habit.target.value, habit.target.unit, habit.quantityKind) : '—'}</b>
+            <span>{habit.type === 'quantified' ? 'target' : 'daily'}</span>
           </div>
         </div>
       </div>
@@ -250,7 +262,7 @@ export default function HabitDetailScreen({ habitId }: { habitId: string }) {
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
-                  {e.value != null && ` · ${e.value} ${habit.target?.unit ?? ''}`}
+                  {e.value != null && ` · ${formatValue(e.value, habit.target?.unit ?? '', habit.quantityKind)}`}
                 </span>
                 <button className="icon-btn" onClick={() => removeEntry(e.id)} aria-label="Delete entry">
                   ✕
