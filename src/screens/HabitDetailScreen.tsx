@@ -84,6 +84,33 @@ function weeklyCompletionRate(habit: Habit, entries: LogEntry[], today: number):
   return points
 }
 
+function durationTrend(habit: Habit, entries: LogEntry[]): TrendPoint[] {
+  const sorted = [...entries].sort((a, b) => a.timestamp - b.timestamp)
+  const last20 = sorted.slice(-20)
+  return last20.map((e) => {
+    const d = new Date(e.timestamp)
+    return {
+      label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      value: e.value ?? 0,
+      unit: habit.target?.unit ?? 'min',
+    }
+  })
+}
+
+function countTrend(habit: Habit, entries: LogEntry[]): TrendPoint[] {
+  const sorted = [...entries].sort((a, b) => a.timestamp - b.timestamp)
+  let total = 0
+  return sorted.map((e) => {
+    total += e.value ?? 1
+    const d = new Date(e.timestamp)
+    return {
+      label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      value: Math.round(total * 10) / 10,
+      unit: habit.target?.unit ?? '',
+    }
+  })
+}
+
 export default function HabitDetailScreen({ habitId }: { habitId: string }) {
   const habit = useStore((s) => s.habits.find((h) => h.id === habitId))
   const entries = useStore((s) => s.entries)
@@ -113,10 +140,12 @@ export default function HabitDetailScreen({ habitId }: { habitId: string }) {
     () => (habit ? buildHeatmapData(habit, habitEntries) : new Map<number, number>()),
     [habit, habitEntries],
   )
-  const trend = useMemo(
-    () => (habit ? weeklyCompletionRate(habit, habitEntries, Date.now()) : []),
-    [habit, habitEntries],
-  )
+  const trend = useMemo(() => {
+    if (!habit) return []
+    if (habit.quantityKind === 'duration') return durationTrend(habit, habitEntries)
+    if (habit.type === 'quantified') return countTrend(habit, habitEntries)
+    return weeklyCompletionRate(habit, habitEntries, Date.now())
+  }, [habit, habitEntries])
 
   if (!habit || !stats) {
     return (
@@ -199,6 +228,27 @@ export default function HabitDetailScreen({ habitId }: { habitId: string }) {
             <span>{habit.type === 'quantified' ? 'target' : 'daily'}</span>
           </div>
         </div>
+
+        {habit.type === 'quantified' && (
+          <div className="detail-stats" style={{ marginTop: 10 }}>
+            <div className="overview-stat">
+              <b>{formatValue(stats.totalValue, habit.target?.unit ?? '', habit.quantityKind)}</b>
+              <span>{habit.quantityKind === 'duration' ? 'total time' : 'total logged'}</span>
+            </div>
+            {habit.quantityKind === 'duration' && habitEntries.length > 0 && (
+              <div className="overview-stat">
+                <b>{formatValue(Math.round(stats.totalValue / habitEntries.length), habit.target?.unit ?? '', 'duration')}</b>
+                <span>average</span>
+              </div>
+            )}
+            {habit.quantityKind === 'duration' && habitEntries.length > 0 && (
+              <div className="overview-stat">
+                <b>{formatValue(Math.min(...habitEntries.map((e) => e.value ?? Infinity)), habit.target?.unit ?? '', 'duration')}</b>
+                <span>best time</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="card">
@@ -207,7 +257,7 @@ export default function HabitDetailScreen({ habitId }: { habitId: string }) {
       </div>
 
       <div className="card">
-        <h2>Completion trend</h2>
+        <h2>{habit.quantityKind === 'duration' ? 'Time trend' : habit.type === 'quantified' ? 'Cumulative total' : 'Completion trend'}</h2>
         <TrendChart data={trend} />
       </div>
 

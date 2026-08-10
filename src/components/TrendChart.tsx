@@ -14,6 +14,17 @@ export interface TrendPoint {
   unit?: string
 }
 
+function formatTooltipValue(v: number, unit?: string): string {
+  if (unit === 'min' || unit === 'sec' || unit === 'hr') {
+    const totalSec = unit === 'min' ? v * 60 : unit === 'hr' ? v * 3600 : v
+    const m = Math.floor(totalSec / 60)
+    const s = Math.round(totalSec % 60)
+    if (m === 0) return `${s}s`
+    return s > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${m} min`
+  }
+  return `${Number.isInteger(v) ? v : v.toFixed(1)}${unit ? ` ${unit}` : '×'}`
+}
+
 export default function TrendChart({ data }: { data: TrendPoint[] }) {
   if (data.length < 2) {
     return (
@@ -50,7 +61,7 @@ export default function TrendChart({ data }: { data: TrendPoint[] }) {
           }}
           labelStyle={{ color: 'var(--text-muted)' }}
           formatter={(value: number) => [
-            `${value}${data[0]?.unit ? ` ${data[0].unit}` : '×'}`,
+            `${formatTooltipValue(value, data[0]?.unit)}`,
             'Progress',
           ]}
         />
