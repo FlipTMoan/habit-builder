@@ -11,7 +11,7 @@ import type {
 } from './types'
 import { PRESET_CATEGORIES, PRESET_HABITS, makePresetHabit, presetCategoryFor } from './seed'
 import { startOfDay } from './lib/dates'
-import { computeStreak, countCompletedWindows, windowForDay } from './lib/streaks'
+import { buildDayTotals, computeStreak, countCompletedWindows, freezesUsedInMonth, windowCompleted, windowForDay } from './lib/streaks'
 import { evaluateAchievements, newlyUnlocked } from './lib/achievements'
 
 interface HabitInput {
@@ -30,6 +30,8 @@ export interface TodayStatus {
   due: boolean
   done: boolean
   current: number
+  /** value accumulated in the current window (for weekly/monthly quantified habits) */
+  windowValue: number
   target?: number
   unit?: string
 }
@@ -43,6 +45,7 @@ interface AppState {
   achievements: Achievement[]
   lastUnlocked: Achievement[]
   settings: Settings | null
+  toastMessage: string | null
   hydrate: () => Promise<void>
 
   createHabit: (input: HabitInput) => Promise<Habit>
@@ -58,14 +61,15 @@ interface AppState {
   updateGoal: (id: string, patch: Partial<Goal>) => Promise<void>
   deleteGoal: (id: string) => Promise<void>
 
-  addEntry: (habitId: string, value?: number) => Promise<void>
+  addEntry: (habitId: string, value?: number, timestamp?: number) => Promise<void>
   removeEntry: (entryId: string) => Promise<void>
   toggleToday: (habitId: string) => Promise<void>
-  useFreeze: (dayStart: number) => Promise<void>
+  useFreeze: (dayStart: number, habitId: string) => Promise<void>
   statusFor: (habitId: string, today?: number) => TodayStatus
 
   exportJSON: () => Promise<string>
-  importJSON: (blob: string) => Promise<void>
+  importJSON: (blob: string, mode?: 'replace' | 'merge') => Promise<void>
+  showToast: (msg: string) => void
 }
 
 function uid(): string {
@@ -78,9 +82,8 @@ export const useStore = create<AppState>((set, get) => {
   }
 
   const refreshAchievements = async () => {
-    const { habits, goals, entries, achievements, settings } = get()
-    const freezeLog = settings?.freezeLog ?? []
-    const current = evaluateAchievements({ habits, goals, entries, today: Date.now(), freezeLog })
+    const { habits, goals, entries, achievements } = get()
+    const current = evaluateAchievements({ habits, goals, entries, today: Date.now() })
     const newOnes = newlyUnlocked(current, achievements)
     if (newOnes.length === 0) return
     const records: Achievement[] = newOnes.map((d) => ({
@@ -93,8 +96,7 @@ export const useStore = create<AppState>((set, get) => {
   }
 
   const evaluateGoalCompletions = async () => {
-    const { goals, habits, entries, settings } = get()
-    const freezeLog = settings?.freezeLog ?? []
+    const { goals, habits, entries } = get()
     let changed = false
     for (const goal of goals) {
       if (goal.completedAt) continue
@@ -107,7 +109,7 @@ export const useStore = create<AppState>((set, get) => {
       } else if (goal.measure === 'streakLength') {
         for (const h of habits) {
           if (!goal.linkedHabitIds.includes(h.id)) continue
-          const s = computeStreak(h, entries.filter((e) => e.habitId === h.id), Date.now(), freezeLog)
+          const s = computeStreak(h, entries.filter((e) => e.habitId === h.id), Date.now(), h.freezeLog ?? [])
           if (s.current >= goal.targetValue) {
             done = true
             break
@@ -141,6 +143,7 @@ export const useStore = create<AppState>((set, get) => {
     achievements: [],
     lastUnlocked: [],
     settings: null,
+    toastMessage: null,
 
     hydrate: async () => {
       try {
@@ -170,6 +173,7 @@ export const useStore = create<AppState>((set, get) => {
         ...input,
         id: uid(),
         createdAt: Date.now(),
+        freezeLog: [],
       }
       await db.habits.add(habit)
       set({ habits: await db.habits.toArray() })
@@ -257,8 +261,8 @@ export const useStore = create<AppState>((set, get) => {
       set({ goals: await db.goals.toArray() })
     },
 
-    addEntry: async (habitId, value) => {
-      const entry: LogEntry = { id: uid(), habitId, timestamp: Date.now(), value }
+    addEntry: async (habitId, value, timestamp) => {
+      const entry: LogEntry = { id: uid(), habitId, timestamp: timestamp ?? Date.now(), value }
       await db.logEntries.add(entry)
       set({ entries: await db.logEntries.toArray() })
       await evaluateGoalCompletions()
@@ -274,12 +278,22 @@ export const useStore = create<AppState>((set, get) => {
     toggleToday: async (habitId) => {
       const habit = get().habits.find((h) => h.id === habitId)
       if (!habit) return
-      const todayStart = startOfDay(Date.now())
-      const todays = get()
-        .entries.filter((e) => e.habitId === habitId && e.timestamp >= todayStart)
-        .sort((a, b) => a.timestamp - b.timestamp)
-      if (todays.length > 0) {
-        const last = todays[todays.length - 1]
+      const win = windowForDay(Date.now(), habit.frequency, habit.createdAt)
+      const habitEntries = get().entries.filter((e) => e.habitId === habitId)
+      // For daily habits, toggle today's entry. For weekly/monthly, toggle the
+      // most recent entry within the current window.
+      let candidates: typeof habitEntries
+      if (habit.frequency.kind === 'daily') {
+        const todayStart = startOfDay(Date.now())
+        candidates = habitEntries.filter((e) => e.timestamp >= todayStart)
+      } else if (win) {
+        candidates = habitEntries.filter((e) => e.timestamp >= win.start && e.timestamp < win.end)
+      } else {
+        candidates = []
+      }
+      if (candidates.length > 0) {
+        const sorted = candidates.sort((a, b) => a.timestamp - b.timestamp)
+        const last = sorted[sorted.length - 1]
         await db.logEntries.delete(last.id)
       } else {
         await db.logEntries.add({ id: uid(), habitId, timestamp: Date.now() })
@@ -289,34 +303,50 @@ export const useStore = create<AppState>((set, get) => {
       await refreshAchievements()
     },
 
-    useFreeze: async (dayStart) => {
-      const { settings } = get()
-      if (!settings) return
-      if (settings.freezeLog.includes(dayStart)) return
-      const updated = { ...settings, freezeLog: [...settings.freezeLog, dayStart] }
-      await db.settings.put(updated)
-      set({ settings: updated })
+    useFreeze: async (dayStart, habitId) => {
+      const habit = get().habits.find((h) => h.id === habitId)
+      if (!habit) return
+      const freezeLog = habit.freezeLog ?? []
+      if (freezeLog.includes(dayStart)) return
+      const now = new Date()
+      const used = freezesUsedInMonth(freezeLog, now.getFullYear(), now.getMonth())
+      const max = get().settings?.freezesPerMonth ?? 2
+      if (used >= max) {
+        get().showToast(`❄️ Freeze limit reached (${max}/month)`)
+        return
+      }
+      const updatedHabit = { ...habit, freezeLog: [...freezeLog, dayStart] }
+      await db.habits.put(updatedHabit)
+      set({ habits: await db.habits.toArray() })
     },
 
     statusFor: (habitId, today = Date.now()) => {
       const habit = get().habits.find((h) => h.id === habitId)
-      if (!habit) return { due: false, done: false, current: 0 }
+      if (!habit) return { due: false, done: false, current: 0, windowValue: 0 }
       const win = windowForDay(today, habit.frequency, habit.createdAt)
       const due = win !== null
+      const habitEntries = get().entries.filter((e) => e.habitId === habitId)
+      const todayStart = startOfDay(today)
       let current = 0
-      for (const e of get().entries) {
-        if (e.habitId === habitId && e.timestamp >= startOfDay(today)) {
-          current += e.value ?? 1
+      for (const e of habitEntries) {
+        if (e.timestamp >= todayStart) current += e.value ?? 1
+      }
+      let windowValue = 0
+      if (win) {
+        for (const e of habitEntries) {
+          if (e.timestamp >= win.start && e.timestamp < win.end) windowValue += e.value ?? 1
         }
       }
-      const done =
-        habit.type === 'quantified' && habit.target
+      const done = win
+        ? windowCompleted(win, habit, buildDayTotals(habitEntries))
+        : habit.type === 'quantified' && habit.target
           ? current >= habit.target.value
           : current > 0
       return {
         due,
         done,
         current,
+        windowValue,
         target: habit.type === 'quantified' ? habit.target?.value : undefined,
         unit: habit.type === 'quantified' ? habit.target?.unit : undefined,
       }
@@ -346,23 +376,47 @@ export const useStore = create<AppState>((set, get) => {
       )
     },
 
-    importJSON: async (blob) => {
-      const data = JSON.parse(blob) as {
+    importJSON: async (blob, mode = 'merge') => {
+      let data: Record<string, unknown>
+      try {
+        data = JSON.parse(blob)
+      } catch {
+        get().showToast('Invalid JSON file')
+        return
+      }
+      if (data.app !== 'habit-builder') {
+        get().showToast('Unrecognised file format')
+        return
+      }
+      if (typeof data.version !== 'number' || data.version > 1) {
+        get().showToast(`Unsupported file version: ${data.version}`)
+        return
+      }
+      const d = data as {
         habits?: Habit[]
         categories?: Category[]
         goals?: Goal[]
         entries?: LogEntry[]
         achievements?: Achievement[]
       }
-      if (data.habits) await db.habits.bulkPut(data.habits)
-      if (data.categories) await db.categories.bulkPut(data.categories)
-      if (data.goals) await db.goals.bulkPut(data.goals)
-      if (data.entries) await db.logEntries.bulkPut(data.entries)
-      if (data.achievements) {
-        await db.achievements.bulkPut(
-          data.achievements.map((a) => ({ ...a, id: a.id || uid() })),
-        )
-      }
+      await db.transaction('rw', [db.habits, db.categories, db.goals, db.logEntries, db.achievements], async () => {
+        if (mode === 'replace') {
+          await db.habits.clear()
+          await db.categories.clear()
+          await db.goals.clear()
+          await db.logEntries.clear()
+          await db.achievements.clear()
+        }
+        if (d.habits) await db.habits.bulkPut(d.habits)
+        if (d.categories) await db.categories.bulkPut(d.categories)
+        if (d.goals) await db.goals.bulkPut(d.goals)
+        if (d.entries) await db.logEntries.bulkPut(d.entries)
+        if (d.achievements) {
+          await db.achievements.bulkPut(
+            d.achievements.map((a) => ({ ...a, id: a.id || uid() })),
+          )
+        }
+      })
       set({
         habits: await db.habits.toArray(),
         categories: await db.categories.toArray(),
@@ -371,6 +425,12 @@ export const useStore = create<AppState>((set, get) => {
         achievements: await db.achievements.toArray(),
       })
       await refreshAchievements()
+      get().showToast('Data imported successfully')
+    },
+
+    showToast: (msg) => {
+      set({ toastMessage: msg })
+      setTimeout(() => set({ toastMessage: null }), 4000)
     },
   }
 })

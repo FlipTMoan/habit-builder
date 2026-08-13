@@ -13,7 +13,7 @@ export const PRESET_CATEGORIES: Category[] = [
 
 const now = Date.now()
 
-export const PRESET_HABITS: Omit<Habit, 'id' | 'createdAt' | 'categoryId'>[] = [
+export const PRESET_HABITS: Omit<Habit, 'id' | 'createdAt' | 'categoryId' | 'freezeLog'>[] = [
   {
     name: 'Drink 2L of water',
     description: 'Stay hydrated through the day.',
@@ -192,5 +192,6 @@ export function makePresetHabit(preset: (typeof PRESET_HABITS)[number], category
     categoryId,
     createdAt: now,
     goalIds: [],
+    freezeLog: [],
   }
 }

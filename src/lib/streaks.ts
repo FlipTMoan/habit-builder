@@ -1,5 +1,5 @@
 import type { Frequency, Habit, LogEntry } from '../types'
-import { DAY_MS, startOfDay, startOfWeek, startOfMonth } from './dates'
+import { startOfDay, startOfWeek, startOfMonth, addDays, daysSinceEpoch } from './dates'
 
 /** Number of freezes used in a given month (month is 0-indexed). */
 export function freezesUsedInMonth(freezeLog: number[], year: number, month: number): number {
@@ -29,26 +29,30 @@ export function windowForDay(ts: number, frequency: Frequency, createdAt: number
   const dayStart = startOfDay(ts)
   switch (frequency.kind) {
     case 'daily':
-      return { start: dayStart, end: dayStart + DAY_MS }
+      return { start: dayStart, end: addDays(dayStart, 1) }
     case 'weekly': {
       const s = startOfWeek(dayStart)
-      return { start: s, end: s + 7 * DAY_MS }
+      return { start: s, end: addDays(s, 7) }
     }
     case 'monthly': {
       const s = startOfMonth(dayStart)
-      return { start: s, end: s + daysInMonth(dayStart) * DAY_MS }
+      return { start: s, end: addDays(s, daysInMonth(dayStart)) }
     }
     case 'custom': {
+      if (frequency.timesPerPeriod && frequency.timesPerPeriod > 0) {
+        // N times per week: use the weekly window
+        const s = startOfWeek(dayStart)
+        return { start: s, end: addDays(s, 7) }
+      }
       if (frequency.daysOfWeek && frequency.daysOfWeek.length > 0) {
         if (!frequency.daysOfWeek.includes(new Date(dayStart).getDay())) return null
-        return { start: dayStart, end: dayStart + DAY_MS }
+        return { start: dayStart, end: addDays(dayStart, 1) }
       }
       if (frequency.intervalDays && frequency.intervalDays > 0) {
-        const anchor = startOfDay(createdAt)
-        if (((dayStart - anchor) / DAY_MS) % frequency.intervalDays !== 0) return null
-        return { start: dayStart, end: dayStart + DAY_MS }
+        if (daysSinceEpoch(dayStart) % frequency.intervalDays !== daysSinceEpoch(startOfDay(createdAt)) % frequency.intervalDays) return null
+        return { start: dayStart, end: addDays(dayStart, 1) }
       }
-      return { start: dayStart, end: dayStart + DAY_MS }
+      return { start: dayStart, end: addDays(dayStart, 1) }
     }
   }
 }
@@ -61,20 +65,20 @@ export function isScheduledDay(ts: number, frequency: Frequency, createdAt: numb
 }
 
 function dayBefore(startTs: number): number {
-  return startTs - DAY_MS
+  return addDays(startTs, -1)
 }
 
-function previousScheduledDay(startTs: number, frequency: Frequency): number | null {
+export function previousScheduledDay(startTs: number, frequency: Frequency): number | null {
   const dayStart = startOfDay(startTs)
   if (frequency.kind === 'custom' && frequency.daysOfWeek && frequency.daysOfWeek.length > 0) {
     for (let i = 1; i <= 7; i++) {
-      const candidate = dayStart - i * DAY_MS
+      const candidate = addDays(dayStart, -i)
       if (frequency.daysOfWeek.includes(new Date(candidate).getDay())) return candidate
     }
     return null
   }
   if (frequency.kind === 'custom' && frequency.intervalDays && frequency.intervalDays > 0) {
-    return dayStart - frequency.intervalDays * DAY_MS
+    return addDays(dayStart, -frequency.intervalDays)
   }
   return dayBefore(dayStart)
 }
@@ -83,21 +87,21 @@ function nextScheduledDay(startTs: number, frequency: Frequency): number | null 
   const dayStart = startOfDay(startTs)
   if (frequency.kind === 'custom' && frequency.daysOfWeek && frequency.daysOfWeek.length > 0) {
     for (let i = 1; i <= 7; i++) {
-      const candidate = dayStart + i * DAY_MS
+      const candidate = addDays(dayStart, i)
       if (frequency.daysOfWeek.includes(new Date(candidate).getDay())) return candidate
     }
     return null
   }
   if (frequency.kind === 'custom' && frequency.intervalDays && frequency.intervalDays > 0) {
-    return dayStart + frequency.intervalDays * DAY_MS
+    return addDays(dayStart, frequency.intervalDays)
   }
   if (frequency.kind === 'monthly') {
     const d = new Date(startOfDay(startTs))
     d.setMonth(d.getMonth() + 1)
     return startOfMonth(d.getTime())
   }
-  if (frequency.kind === 'weekly') return dayStart + 7 * DAY_MS
-  return dayStart + DAY_MS
+  if (frequency.kind === 'weekly') return addDays(dayStart, 7)
+  return addDays(dayStart, 1)
 }
 
 interface DayTotals {
@@ -106,7 +110,7 @@ interface DayTotals {
   hours: number[]
 }
 
-function buildDayTotals(entries: LogEntry[]): Map<number, DayTotals> {
+export function buildDayTotals(entries: LogEntry[]): Map<number, DayTotals> {
   const map = new Map<number, DayTotals>()
   for (const e of entries) {
     const key = startOfDay(e.timestamp)
@@ -122,12 +126,14 @@ function buildDayTotals(entries: LogEntry[]): Map<number, DayTotals> {
 function totalInWindow(win: Window, totals: Map<number, DayTotals>): { count: number; value: number } {
   let count = 0
   let value = 0
-  for (let ts = win.start; ts < win.end; ts += DAY_MS) {
+  let ts = win.start
+  while (ts < win.end) {
     const t = totals.get(ts)
     if (t) {
       count += t.count
       value += t.value
     }
+    ts = addDays(ts, 1)
   }
   return { count, value }
 }
@@ -137,6 +143,23 @@ export function windowCompleted(
   habit: Habit,
   totals: Map<number, DayTotals>,
 ): boolean {
+  const freq = habit.frequency
+  if (freq.kind === 'custom' && freq.timesPerPeriod && freq.timesPerPeriod > 0) {
+    if (habit.type === 'quantified' && habit.target) {
+      // Count distinct days where target was met
+      let distinctDays = 0
+      let ts = win.start
+      while (ts < win.end) {
+        const t = totals.get(ts)
+        if (t && t.value >= (habit.target?.value ?? 1)) distinctDays += 1
+        ts = addDays(ts, 1)
+      }
+      return distinctDays >= freq.timesPerPeriod
+    }
+    // Binary: count completions across the week
+    const { count } = totalInWindow(win, totals)
+    return count >= freq.timesPerPeriod
+  }
   const { count, value } = totalInWindow(win, totals)
   if (habit.type === 'quantified' && habit.target) {
     return value >= habit.target.value
@@ -200,7 +223,7 @@ export function computeStreak(habit: Habit, entries: LogEntry[], today: number, 
     // today isn't scheduled (e.g. Mon/Wed/Fri habit on a Sunday): start from the
     // most recent scheduled day.
     for (let i = 1; i <= 60; i++) {
-      const candidate = windowForDay(today - i * DAY_MS, habit.frequency, createdAt)
+      const candidate = windowForDay(addDays(today, -i), habit.frequency, createdAt)
       if (candidate) {
         curWin = candidate
         break
@@ -294,6 +317,9 @@ export function describeFrequency(frequency: Frequency): string {
     case 'monthly':
       return 'Monthly'
     case 'custom': {
+      if (frequency.timesPerPeriod && frequency.timesPerPeriod > 0) {
+        return `${frequency.timesPerPeriod}× per week`
+      }
       if (frequency.daysOfWeek && frequency.daysOfWeek.length > 0) {
         const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
         return frequency.daysOfWeek.map((d) => names[d]).join(', ')

@@ -3,7 +3,6 @@ import { useStore } from '../store'
 import { PRESET_HABITS } from '../seed'
 import HabitRow from '../components/HabitRow'
 import { navigate } from '../App'
-import { startOfDay } from '../lib/dates'
 
 function getGreeting(): string {
   const h = new Date().getHours()
@@ -14,24 +13,15 @@ function getGreeting(): string {
 
 export default function TodayScreen() {
   const habits = useStore((s) => s.habits)
-  const entries = useStore((s) => s.entries)
   const statusFor = useStore((s) => s.statusFor)
   const importPreset = useStore((s) => s.importPreset)
 
   const active = useMemo(() => habits.filter((h) => !h.archivedAt), [habits])
-  const due = active.filter((h) => statusFor(h.id).due)
-  const todayStart = startOfDay(Date.now())
-
-  const doneToday = useMemo(
-    () => entries.filter((e) => e.timestamp >= todayStart).length,
-    [entries, todayStart],
-  )
-  const completedCount = useMemo(
-    () => active.filter((h) => statusFor(h.id).done).length,
-    [active, statusFor],
-  )
-  const totalDue = due.length
-  const pct = totalDue > 0 ? Math.round((completedCount / totalDue) * 100) : 0
+  const dueHabits = useMemo(() => active.filter((h) => statusFor(h.id).due && !statusFor(h.id).done), [active, statusFor])
+  const completedHabits = useMemo(() => active.filter((h) => statusFor(h.id).done), [active, statusFor])
+  const totalDue = dueHabits.length
+  const completedCount = completedHabits.length
+  const pct = totalDue > 0 ? Math.round((completedCount / (completedCount + totalDue)) * 100) : 0
 
   const weekday = new Date().toLocaleDateString(undefined, {
     weekday: 'long',
@@ -41,9 +31,9 @@ export default function TodayScreen() {
 
   const motivationalMsg = useMemo(() => {
     if (active.length === 0) return null
-    if (totalDue === 0) return 'No habits due today — enjoy your day!'
-    if (completedCount === totalDue) return 'All done! Great work today 🎉'
-    if (completedCount > 0) return `${totalDue - completedCount} left — you got this!`
+    if (totalDue === 0 && completedCount === 0) return 'No habits due today — enjoy your day!'
+    if (totalDue === 0) return 'All done! Great work today 🎉'
+    if (completedCount > 0) return `${totalDue} left — you got this!`
     return `${totalDue} habits waiting for you — let's go!`
   }, [active.length, totalDue, completedCount])
 
@@ -81,11 +71,11 @@ export default function TodayScreen() {
         </div>
       ) : (
         <>
-          {totalDue > 0 && (
+          {(completedCount > 0 || totalDue > 0) && (
             <div className="card">
               <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
                 <span className="text-s text-muted">
-                  {completedCount}/{totalDue} completed
+                  {completedCount}/{completedCount + totalDue} completed
                 </span>
                 <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{pct}%</span>
               </div>
@@ -100,22 +90,22 @@ export default function TodayScreen() {
             </div>
           )}
 
-          {due.length > 0 && (
+          {dueHabits.length > 0 && (
             <div className="card">
               <h2>Due now</h2>
               <div className="habit-list">
-                {due.map((h) => (
+                {dueHabits.map((h) => (
                   <HabitRow key={h.id} habit={h} />
                 ))}
               </div>
             </div>
           )}
 
-          {(doneToday > 0 || due.length === 0) && (
+          {completedHabits.length > 0 && (
             <div className="card">
-              <h2>Your habits</h2>
+              <h2>Completed</h2>
               <div className="habit-list">
-                {active.map((h) => (
+                {completedHabits.map((h) => (
                   <HabitRow key={h.id} habit={h} />
                 ))}
               </div>

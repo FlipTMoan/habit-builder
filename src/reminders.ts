@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 import { windowForDay } from './lib/streaks'
+import { dayKey } from './lib/dates'
 
 export function requestNotificationPermission(): Promise<boolean> {
   if (!('Notification' in window)) return Promise.resolve(false)
@@ -20,14 +21,23 @@ export function useReminders(): string | null {
   const habits = useStore((s) => s.habits)
   const [flash, setFlash] = useState<string | null>(null)
   const fired = useRef(new Set<string>())
+  const lastDay = useRef(dayKey(Date.now()))
   const permission = useRef<NotificationPermission | 'unsupported'>(
     'Notification' in window ? Notification.permission : 'unsupported',
   )
 
   useEffect(() => {
-    const check = () => {
+    const check = async () => {
       const now = new Date()
       const hhmm = nowHHMM(now)
+
+      // Reset fired set when the day changes
+      const todayKey = dayKey(now.getTime())
+      if (todayKey !== lastDay.current) {
+        fired.current.clear()
+        lastDay.current = todayKey
+      }
+
       permission.current = 'Notification' in window ? Notification.permission : 'unsupported'
       for (const habit of habits) {
         if (!habit.notification?.enabled) continue
@@ -41,12 +51,22 @@ export function useReminders(): string | null {
           fired.current.add(key)
           const text = habit.notification.message || `Time to ${habit.name.toLowerCase()}`
           const allowed = permission.current === 'granted'
-          if (allowed && 'Notification' in window) {
+          if (allowed) {
             try {
-              new Notification(habit.name, {
-                body: text,
-                tag: `habit-${habit.id}-${hhmm}`,
-              })
+              // Try SW-routed notification first (works on Android Chrome)
+              if ('serviceWorker' in navigator) {
+                const reg = await navigator.serviceWorker.ready
+                await reg.showNotification(habit.name, {
+                  body: text,
+                  tag: `habit-${habit.id}-${hhmm}`,
+                })
+              } else {
+                // Fallback for desktop browsers
+                new Notification(habit.name, {
+                  body: text,
+                  tag: `habit-${habit.id}-${hhmm}`,
+                })
+              }
             } catch {
               setFlash(`⏰ ${habit.name}`)
             }

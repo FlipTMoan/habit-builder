@@ -15,6 +15,7 @@ function makeHabit(overrides: Partial<Habit>): Habit {
     frequency: { kind: 'daily' },
     appLinks: [],
     notification: { enabled: false, times: [] },
+    freezeLog: [],
     createdAt: d(2026, 1, 1),
     ...overrides,
   }
@@ -198,5 +199,81 @@ describe('freeze helpers', () => {
     expect(freezesUsedInMonth(log, 2026, 0)).toBe(2) // Jan
     expect(freezesUsedInMonth(log, 2026, 1)).toBe(1) // Feb
     expect(freezesUsedInMonth(log, 2026, 2)).toBe(0) // Mar
+  })
+})
+
+describe('DST transitions (Europe/Oslo 2026)', () => {
+  // Spring forward: March 29, 02:00 → 03:00 (UTC+1 → UTC+2)
+  // Fall back: October 25, 03:00 → 02:00 (UTC+2 → UTC+1)
+  // These tests verify that streaks, interval schedules, and window
+  // completion are unaffected by DST transitions.
+
+  it('daily streak across March DST transition is unbroken', () => {
+    const habit = makeHabit({})
+    // March 27 (Fri) through March 31 (Tue) — spans March 29 DST
+    const today = d(2026, 3, 31)
+    const entries = [
+      entry(d(2026, 3, 27)),
+      entry(d(2026, 3, 28)),
+      entry(d(2026, 3, 29)), // DST spring forward
+      entry(d(2026, 3, 30)),
+      entry(d(2026, 3, 31)),
+    ]
+    const s = computeStreak(habit, entries, today)
+    expect(s.current).toBe(5)
+  })
+
+  it('daily streak across October DST transition is unbroken', () => {
+    const habit = makeHabit({})
+    // October 23 (Fri) through October 27 (Tue) — spans October 25 DST
+    const today = d(2026, 10, 27)
+    const entries = [
+      entry(d(2026, 10, 23)),
+      entry(d(2026, 10, 24)),
+      entry(d(2026, 10, 25)), // DST fall back
+      entry(d(2026, 10, 26)),
+      entry(d(2026, 10, 27)),
+    ]
+    const s = computeStreak(habit, entries, today)
+    expect(s.current).toBe(5)
+  })
+
+  it('every-3-days schedule matches correctly across DST', () => {
+    const created = d(2026, 3, 26) // Thursday
+    const habit = makeHabit({ frequency: { kind: 'custom', intervalDays: 3 }, createdAt: created })
+    const today = d(2026, 3, 31)
+    // Scheduled: Mar 26, 29, Apr 1...
+    const entries = [
+      entry(d(2026, 3, 26)),
+      entry(d(2026, 3, 29)), // DST spring forward
+    ]
+    const s = computeStreak(habit, entries, today)
+    expect(s.current).toBe(2)
+    // Verify windowForDay returns non-null on scheduled days across DST
+    expect(windowForDay(d(2026, 3, 29), habit.frequency, created)).not.toBeNull()
+    expect(windowForDay(d(2026, 3, 30), habit.frequency, created)).toBeNull()
+  })
+
+  it('weekly habit window spans DST transition correctly', () => {
+    const habit = makeHabit({ frequency: { kind: 'weekly' } })
+    // Week of March 23-29 (DST on March 29)
+    const win = windowForDay(d(2026, 3, 27), habit.frequency, habit.createdAt)
+    expect(win).not.toBeNull()
+    // Window start/end should be valid startOfDay-aligned timestamps
+    const start = new Date(win!.start)
+    const end = new Date(win!.end)
+    expect(start.getHours()).toBe(0)
+    expect(end.getHours()).toBe(0)
+    // End should be exactly 7 calendar days after start
+    const calendarDays = Math.round((win!.end - win!.start) / 86_400_000)
+    expect(calendarDays).toBe(7)
+  })
+
+  it('countCompletedWindows works across DST boundary', () => {
+    const habit = makeHabit({ frequency: { kind: 'weekly' } })
+    const today = d(2026, 3, 30)
+    // Completed the week containing March 29 DST
+    const entries = [entry(d(2026, 3, 25))]
+    expect(countCompletedWindows(habit, entries, today)).toBe(1)
   })
 })

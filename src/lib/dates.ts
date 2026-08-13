@@ -37,12 +37,12 @@ export function periodDays(ts: number, kind: 'daily' | 'weekly' | 'monthly'): nu
   if (kind === 'daily') return []
   if (kind === 'weekly') {
     const s = startOfWeek(ms)
-    return [s, s + DAY_MS, s + 2 * DAY_MS, s + 3 * DAY_MS, s + 4 * DAY_MS, s + 5 * DAY_MS, s + 6 * DAY_MS]
+    return Array.from({ length: 7 }, (_, i) => addDays(s, i))
   }
   // monthly
   const s = startOfMonth(ms)
   const daysInMonth = new Date(new Date(s).getFullYear(), new Date(s).getMonth() + 1, 0).getDate()
-  return Array.from({ length: daysInMonth }, (_, i) => s + i * DAY_MS)
+  return Array.from({ length: daysInMonth }, (_, i) => addDays(s, i))
 }
 
 export function dayKey(ts: number): string {

@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../store'
 import type { Habit } from '../types'
-import { computeStreak, describeFrequency } from '../lib/streaks'
-import { startOfDay } from '../lib/dates'
+import { computeStreak, describeFrequency, freezesUsedInMonth, previousScheduledDay, windowForDay } from '../lib/streaks'
+import { addDays, startOfDay, dayKey } from '../lib/dates'
 import { navigate } from '../App'
 import Modal from './Modal'
 
@@ -43,8 +43,10 @@ export default function HabitRow({ habit }: { habit: Habit }) {
   const status = statusFor(habit.id)
   const [showValue, setShowValue] = useState(false)
   const [value, setValue] = useState('')
+  const [logDate, setLogDate] = useState(dayKey(Date.now()))
+  const [showLogYesterday, setShowLogYesterday] = useState(false)
 
-  const freezeLog = settings?.freezeLog ?? []
+  const freezeLog = habit.freezeLog ?? []
   const streakResult = useMemo(
     () => computeStreak(habit, entries.filter((e) => e.habitId === habit.id), Date.now(), freezeLog),
     [habit, entries, freezeLog],
@@ -56,6 +58,20 @@ export default function HabitRow({ habit }: { habit: Habit }) {
   const todayStart = startOfDay(Date.now())
   const isFrozenToday = freezeLog.includes(todayStart)
   const streakWasBroken = bestStreak >= 3 && streak === 0
+
+  const freezesThisMonth = useMemo(() => {
+    const now = new Date()
+    return freezesUsedInMonth(freezeLog, now.getFullYear(), now.getMonth())
+  }, [freezeLog])
+  const maxFreezes = settings?.freezesPerMonth ?? 2
+  const freezeExhausted = freezesThisMonth >= maxFreezes
+
+  const missedDay = useMemo(() => {
+    const yesterday = addDays(todayStart, -1)
+    const prev = previousScheduledDay(todayStart, habit.frequency)
+    if (prev !== null) return prev
+    return yesterday
+  }, [todayStart, habit.frequency])
 
   const progressPct = useMemo(() => {
     if (habit.type !== 'quantified' || !habit.target) return 0
@@ -69,6 +85,16 @@ export default function HabitRow({ habit }: { habit: Habit }) {
       return
     }
     toggleToday(habit.id)
+    // Show "log yesterday?" if streak was broken and this is a daily habit
+    if (streakWasBroken && habit.frequency.kind === 'daily') {
+      setShowLogYesterday(true)
+    }
+  }
+
+  const logYesterday = async () => {
+    const yesterday = addDays(startOfDay(Date.now()), -1)
+    await addEntry(habit.id, 1, yesterday + (Date.now() - startOfDay(Date.now())))
+    setShowLogYesterday(false)
   }
 
   const submitValue = async () => {
@@ -79,19 +105,41 @@ export default function HabitRow({ habit }: { habit: Habit }) {
       parsed = parseFloat(value.replace(',', '.'))
     }
     if (!Number.isFinite(parsed) || parsed <= 0) return
-    await addEntry(habit.id, parsed)
+    const targetDay = startOfDay(new Date(logDate + 'T00:00:00').getTime())
+    const ts = targetDay + (Date.now() - startOfDay(Date.now()))
+    await addEntry(habit.id, parsed, ts)
     setShowValue(false)
     setValue('')
+    setLogDate(dayKey(Date.now()))
   }
 
   const handleFreeze = (e: React.MouseEvent) => {
     e.stopPropagation()
-    useFreeze(todayStart)
+    useFreeze(missedDay, habit.id)
+  }
+
+  const win = windowForDay(Date.now(), habit.frequency, habit.createdAt)
+  const canFreezeToday = streak > 0 && !status.done && !isFrozenToday && !freezeExhausted && win !== null
+
+  const handleFreezeToday = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    useFreeze(todayStart, habit.id)
   }
 
   return (
     <>
-      <div className="habit-item" onClick={() => navigate({ name: 'habit', id: habit.id })}>
+      <div
+        className="habit-item"
+        onClick={() => navigate({ name: 'habit', id: habit.id })}
+        tabIndex={0}
+        role="button"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            navigate({ name: 'habit', id: habit.id })
+          }
+        }}
+      >
         <button
           className={`habit-check ${status.done ? 'done' : ''}`}
           onClick={onCheck}
@@ -113,10 +161,14 @@ export default function HabitRow({ habit }: { habit: Habit }) {
             <span>{describeFrequency(habit.frequency)}</span>
             {habit.type === 'quantified' && habit.target && (
               <span>
-                {formatValue(status.current, habit.target.unit, habit.quantityKind)}
-                {' / '}
-                {formatValue(habit.target.value, habit.target.unit, habit.quantityKind)}
+                {habit.frequency.kind === 'custom' && habit.frequency.timesPerPeriod
+                  ? `${status.windowValue}/${habit.frequency.timesPerPeriod} this week`
+                  : `${formatValue(status.current, habit.target.unit, habit.quantityKind)} / ${formatValue(habit.target.value, habit.target.unit, habit.quantityKind)}`
+                }
               </span>
+            )}
+            {habit.type === 'binary' && habit.frequency.kind === 'custom' && habit.frequency.timesPerPeriod && (
+              <span>{status.windowValue}/{habit.frequency.timesPerPeriod} this week</span>
             )}
             <span className={`streak-pill ${streak > 0 ? 'on' : ''}`}>🔥 {streak}</span>
           </div>
@@ -130,9 +182,25 @@ export default function HabitRow({ habit }: { habit: Habit }) {
           )}
           {streakWasBroken && !status.done && !isFrozenToday && (
             <div className="recovery-msg">
-              <span>💪 Streak paused — get back on track today!</span>
-              <button className="btn small secondary" onClick={handleFreeze}>
-                ❄️ Use freeze
+              <span>Streak broken at {bestStreak} — repair with a freeze or log yesterday.</span>
+              <button
+                className="btn small secondary"
+                onClick={handleFreeze}
+                disabled={freezeExhausted}
+                title={freezeExhausted ? `Freeze limit reached (${maxFreezes}/month)` : undefined}
+              >
+                ❄️ Use freeze{freezeExhausted ? ' (limit reached)' : ` (${maxFreezes - freezesThisMonth} left)`}
+              </button>
+            </div>
+          )}
+          {canFreezeToday && !streakWasBroken && (
+            <div className="text-s text-muted" style={{ marginTop: 4 }}>
+              <button
+                className="btn ghost small"
+                onClick={handleFreezeToday}
+                style={{ fontSize: '0.75rem', padding: '2px 6px' }}
+              >
+                ❄️ Freeze today ({maxFreezes - freezesThisMonth} left)
               </button>
             </div>
           )}
@@ -150,8 +218,30 @@ export default function HabitRow({ habit }: { habit: Habit }) {
         )}
       </div>
 
+      {showLogYesterday && (
+        <div className="recovery-msg" style={{ marginLeft: 48, marginTop: -4 }}>
+          <span className="text-s">Log yesterday too?</span>
+          <button className="btn small secondary" onClick={logYesterday}>
+            Yes
+          </button>
+          <button className="btn ghost small" onClick={() => setShowLogYesterday(false)}>
+            No
+          </button>
+        </div>
+      )}
+
       <Modal open={showValue} title={`Log ${habit.name}`} onClose={() => setShowValue(false)}>
         <div className="sheet-form">
+          <div className="field">
+            <label>Date</label>
+            <input
+              type="date"
+              value={logDate}
+              min={dayKey(addDays(Date.now(), -7))}
+              max={dayKey(Date.now())}
+              onChange={(e) => setLogDate(e.target.value)}
+            />
+          </div>
           <div className="field">
             <label>
               {habit.quantityKind === 'duration' ? 'Time' : 'Amount'}

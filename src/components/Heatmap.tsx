@@ -1,4 +1,4 @@
-import { startOfDay, startOfWeek } from '../lib/dates'
+import { startOfDay, startOfWeek, addDays } from '../lib/dates'
 
 interface Props {
   /** dayStart ms -> completion level 0..4 */
@@ -13,15 +13,14 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 export default function Heatmap({ data, weeks = 21 }: Props) {
   const todayStart = startOfDay(Date.now())
   const mondayOfThisWeek = startOfWeek(todayStart, 1)
-  const start = mondayOfThisWeek - (weeks - 1) * 7 * 86_400_000
+  const start = addDays(mondayOfThisWeek, (weeks - 1) * -7)
 
   const columns: { cells: number[]; weekStart: number }[] = []
-  const dayMs = 86_400_000
   for (let w = 0; w < weeks; w++) {
     const col = []
-    const weekStart = start + w * 7 * dayMs
+    const weekStart = addDays(start, w * 7)
     for (let d = 0; d < 7; d++) {
-      const ms = weekStart + d * dayMs
+      const ms = addDays(weekStart, d)
       col.push(data.get(ms) ?? 0)
     }
     columns.push({ cells: col, weekStart })
@@ -63,12 +62,13 @@ export default function Heatmap({ data, weeks = 21 }: Props) {
           {columns.map((col, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {col.cells.map((lvl, j) => {
-                const dayMs2 = col.weekStart + j * dayMs
+                const dayMs = addDays(col.weekStart, j)
                 return (
                   <div
                     key={j}
                     className={`heatmap-cell${lvl > 0 ? ` lvl${lvl}` : ''}`}
-                    title={lvl > 0 ? `${formatDate(dayMs2)} — ${lvl} habit${lvl > 1 ? 's' : ''}` : formatDate(dayMs2)}
+                    title={lvl > 0 ? `${formatDate(dayMs)} — ${lvl} habit${lvl > 1 ? 's' : ''}` : formatDate(dayMs)}
+                    aria-label={`${formatDate(dayMs)}: ${lvl > 0 ? `${lvl} completion${lvl > 1 ? 's' : ''}` : 'no completions'}`}
                   />
                 )
               })}

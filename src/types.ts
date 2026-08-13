@@ -36,6 +36,8 @@ export interface Habit {
   appLinks: AppLink[]
   goalIds?: string[]
   notification: NotificationSettings
+  /** per-habit streak freeze days (start-of-day ms timestamps) */
+  freezeLog: number[]
   createdAt: number
   archivedAt?: number
 }

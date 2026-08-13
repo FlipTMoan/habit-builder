@@ -2,15 +2,13 @@ import { useMemo, useState } from 'react'
 import { useStore } from '../store'
 import type { Habit, LogEntry } from '../types'
 import { computeStreak, describeFrequency, windowForDay, windowCompleted } from '../lib/streaks'
-import { startOfDay, startOfWeek } from '../lib/dates'
+import { startOfDay, startOfWeek, addDays } from '../lib/dates'
 import Heatmap from '../components/Heatmap'
 import TrendChart, { type TrendPoint } from '../components/TrendChart'
 import ProgressRing from '../components/ProgressRing'
 import { computeGoalProgress } from '../lib/goals'
 import { navigate } from '../App'
 import Modal from '../components/Modal'
-
-const DAY_MS = 86_400_000
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -63,11 +61,11 @@ function weeklyCompletionRate(habit: Habit, entries: LogEntry[], today: number):
   const points: TrendPoint[] = []
   const monday = startOfWeek(startOfDay(today), 1)
   for (let w = 11; w >= 0; w--) {
-    const weekStart = monday - w * 7 * DAY_MS
+    const weekStart = addDays(monday, w * -7)
     let scheduled = 0
     let done = 0
     for (let d = 0; d < 7; d++) {
-      const day = weekStart + d * DAY_MS
+      const day = addDays(weekStart, d)
       if (day > today) continue
       const r = wins(day)
       if (!r) continue
@@ -120,7 +118,6 @@ export default function HabitDetailScreen({ habitId }: { habitId: string }) {
   const archiveHabit = useStore((s) => s.archiveHabit)
   const deleteHabit = useStore((s) => s.deleteHabit)
   const removeEntry = useStore((s) => s.removeEntry)
-  const settings = useStore((s) => s.settings)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const habitEntries = useMemo(
@@ -133,8 +130,8 @@ export default function HabitDetailScreen({ habitId }: { habitId: string }) {
   )
 
   const stats = useMemo(
-    () => (habit ? computeStreak(habit, habitEntries, Date.now(), settings?.freezeLog ?? []) : null),
-    [habit, habitEntries, settings],
+    () => (habit ? computeStreak(habit, habitEntries, Date.now(), habit.freezeLog ?? []) : null),
+    [habit, habitEntries],
   )
   const heatmap = useMemo(
     () => (habit ? buildHeatmapData(habit, habitEntries) : new Map<number, number>()),

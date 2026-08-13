@@ -58,13 +58,11 @@ export default function DashboardScreen() {
       const day = startOfDay(e.timestamp)
       map.set(day, (map.get(day) ?? 0) + 1)
     }
-    // Normalize to 0-4 scale
-    const max = Math.max(1, ...map.values())
+    // Fixed scale: 1/2/3/4+ — no retroactive recoloring
     const out = new Map<number, number>()
     for (const [day, count] of map) {
       if (day > today) continue
-      const level = Math.min(4, Math.ceil((count / max) * 4))
-      out.set(day, level)
+      out.set(day, Math.min(4, count))
     }
     return out
   }, [entries, active])

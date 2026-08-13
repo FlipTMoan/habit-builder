@@ -11,6 +11,7 @@ export default function SettingsScreen() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [deviceId, setDeviceId] = useState('')
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null)
+  const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge')
 
   interface BeforeInstallPromptEvent extends Event {
     prompt: () => Promise<void>
@@ -42,8 +43,7 @@ export default function SettingsScreen() {
     const reader = new FileReader()
     reader.onload = async () => {
       try {
-        await importJSON(String(reader.result))
-        alert('Backup imported successfully.')
+        await importJSON(String(reader.result), importMode)
       } catch {
         alert('Import failed — is this a valid Habit Builder backup file?')
       }
@@ -100,13 +100,23 @@ export default function SettingsScreen() {
         <p className="text-s text-muted" style={{ margin: 0 }}>
           All data lives on this device. Export a JSON backup and import it on another device to move your data there.
         </p>
-        <div className="row" style={{ marginTop: 12 }}>
+        <div className="row" style={{ marginTop: 12, alignItems: 'center' }}>
           <button className="btn secondary" onClick={doExport}>
             Export backup (JSON)
           </button>
-          <button className="btn secondary" onClick={() => fileRef.current?.click()}>
-            Import backup
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <select
+              value={importMode}
+              onChange={(e) => setImportMode(e.target.value as 'merge' | 'replace')}
+              style={{ fontSize: '0.8rem', padding: '4px 6px' }}
+            >
+              <option value="merge">Merge</option>
+              <option value="replace">Replace</option>
+            </select>
+            <button className="btn secondary" onClick={() => fileRef.current?.click()}>
+              Import backup
+            </button>
+          </div>
           <input
             ref={fileRef}
             type="file"

@@ -14,6 +14,8 @@ interface Draft {
   freqKind: Frequency['kind']
   daysOfWeek: number[]
   intervalDays: string
+  timesPerPeriod: string
+  customMode: 'days' | 'interval' | 'timesPerWeek'
   appLinks: { label: string; url: string }[]
   notificationEnabled: boolean
   notificationTimes: string[]
@@ -42,6 +44,13 @@ function parseDuration(input: string): number {
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function fromHabit(habit?: Habit): Draft {
+  const freq = habit?.frequency
+  let customMode: Draft['customMode'] = 'days'
+  if (freq?.kind === 'custom') {
+    if (freq.timesPerPeriod && freq.timesPerPeriod > 0) customMode = 'timesPerWeek'
+    else if (freq.intervalDays && freq.intervalDays > 0) customMode = 'interval'
+    else customMode = 'days'
+  }
   return {
     name: habit?.name ?? '',
     description: habit?.description ?? '',
@@ -53,6 +62,8 @@ function fromHabit(habit?: Habit): Draft {
     freqKind: habit?.frequency.kind ?? 'daily',
     daysOfWeek: habit?.frequency.daysOfWeek ?? [1, 3, 5],
     intervalDays: habit?.frequency.intervalDays?.toString() ?? '3',
+    timesPerPeriod: habit?.frequency.timesPerPeriod?.toString() ?? '3',
+    customMode,
     appLinks: habit?.appLinks ?? [],
     notificationEnabled: habit?.notification.enabled ?? false,
     notificationTimes: habit?.notification.times ?? ['20:00'],
@@ -123,13 +134,26 @@ export default function HabitFormScreen({ habitId }: { habitId?: string }) {
       kind: draft.freqKind,
     }
     if (draft.freqKind === 'custom') {
-      const interval = parseInt(draft.intervalDays, 10)
-      if (draft.daysOfWeek.length > 0) {
-        frequency.daysOfWeek = draft.daysOfWeek
-      } else if (interval > 0) {
-        frequency.intervalDays = interval
+      if (draft.customMode === 'timesPerWeek') {
+        const n = parseInt(draft.timesPerPeriod, 10)
+        if (n > 0) {
+          frequency.timesPerPeriod = n
+        } else {
+          frequency.kind = 'daily'
+        }
+      } else if (draft.customMode === 'interval') {
+        const interval = parseInt(draft.intervalDays, 10)
+        if (interval > 0) {
+          frequency.intervalDays = interval
+        } else {
+          frequency.kind = 'daily'
+        }
       } else {
-        frequency.kind = 'daily'
+        if (draft.daysOfWeek.length > 0) {
+          frequency.daysOfWeek = draft.daysOfWeek
+        } else {
+          frequency.kind = 'daily'
+        }
       }
     }
 
@@ -294,32 +318,60 @@ export default function HabitFormScreen({ habitId }: { habitId?: string }) {
 
         {draft.freqKind === 'custom' && (
           <div className="sheet-form" style={{ marginTop: 12 }}>
-            <div className="field">
-              <label>Pick days of the week</label>
-              <div className="days">
-                {DAY_NAMES.map((dn, i) => (
-                  <button
-                    key={dn}
-                    className={draft.daysOfWeek.includes(i) ? 'active' : ''}
-                    onClick={() => toggleDay(i)}
-                  >
-                    {dn}
-                  </button>
-                ))}
+            <div className="seg">
+              <button className={draft.customMode === 'days' ? 'active' : ''} onClick={() => set('customMode', 'days')}>
+                Specific days
+              </button>
+              <button className={draft.customMode === 'timesPerWeek' ? 'active' : ''} onClick={() => set('customMode', 'timesPerWeek')}>
+                N times / week
+              </button>
+              <button className={draft.customMode === 'interval' ? 'active' : ''} onClick={() => set('customMode', 'interval')}>
+                Every N days
+              </button>
+            </div>
+
+            {draft.customMode === 'days' && (
+              <div className="field" style={{ marginTop: 12 }}>
+                <label>Pick days of the week</label>
+                <div className="days">
+                  {DAY_NAMES.map((dn, i) => (
+                    <button
+                      key={dn}
+                      className={draft.daysOfWeek.includes(i) ? 'active' : ''}
+                      onClick={() => toggleDay(i)}
+                    >
+                      {dn}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div className="field">
-              <label>Or: every N days</label>
-              <input
-                type="number"
-                min={1}
-                value={draft.intervalDays}
-                onChange={(e) => {
-                  set('intervalDays', e.target.value)
-                  set('daysOfWeek', [])
-                }}
-              />
-            </div>
+            )}
+
+            {draft.customMode === 'timesPerWeek' && (
+              <div className="field" style={{ marginTop: 12 }}>
+                <label>How many times per week?</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={7}
+                  value={draft.timesPerPeriod}
+                  onChange={(e) => set('timesPerPeriod', e.target.value)}
+                  placeholder="3"
+                />
+              </div>
+            )}
+
+            {draft.customMode === 'interval' && (
+              <div className="field" style={{ marginTop: 12 }}>
+                <label>Every N days</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={draft.intervalDays}
+                  onChange={(e) => set('intervalDays', e.target.value)}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
